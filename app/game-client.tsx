@@ -2,7 +2,6 @@
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Clone, Sky, useAnimations, useGLTF } from "@react-three/drei";
-import { joinRoom, selfId, type Room } from "trystero";
 import * as THREE from "three";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -94,7 +93,7 @@ function Arena({ map, name, roomId, onHud, onPeers }: { map: MapId; name: string
   const velocityY = useRef(0); const grounded = useRef(true); const yaw = useRef(0); const pitch = useRef(0);
   const score = useRef(0); const weapon = useRef(0); const ammo = useRef(WEAPONS[0].clip); const lastShot=useRef(0); const reloading=useRef(false);
   const targetAlive = useRef(PRACTICE_TARGETS.map(()=>true));
-  const peers = useRef<Record<string,PeerState>>({}); const room = useRef<Room | null>(null); const sendState = useRef<((d:any)=>void)|null>(null);
+  const peers = useRef<Record<string,PeerState>>({}); const room = useRef<{leave:()=>void} | null>(null); const selfIdRef=useRef("you"); const sendState = useRef<((d:any)=>void)|null>(null);
   const [, redraw] = useState(0);
 
   const reload = useCallback(() => {
@@ -124,11 +123,16 @@ function Arena({ map, name, roomId, onHud, onPeers }: { map: MapId; name: string
   },[camera,gl.domElement,reload,shoot]);
 
   useEffect(()=>{
-    const r=joinRoom({appId:"gungame-neon-arena-v1"},roomId); room.current=r;
-    const stateAction=r.makeAction<any>("state"); sendState.current=(data)=>{void stateAction.send(data)};
-    stateAction.onMessage=(data,{peerId:id})=>{if(data.position){peers.current[id]={...data,id};onPeers(Object.values(peers.current));} if(data.hit&&data.hit===selfId){onHud({healthHit:data.damage});}};
-    r.onPeerLeave(id=>{delete peers.current[id];onPeers(Object.values(peers.current))});
-    return()=>r.leave();
+    let cancelled=false;
+    void import("trystero").then(({joinRoom,selfId})=>{
+      if(cancelled)return;
+      selfIdRef.current=selfId;
+      const r=joinRoom({appId:"gungame-neon-arena-v1"},roomId); room.current=r;
+      const stateAction=r.makeAction<any>("state"); sendState.current=(data)=>{void stateAction.send(data)};
+      stateAction.onMessage=(data,{peerId:id})=>{if(data.position){peers.current[id]={...data,id};onPeers(Object.values(peers.current));} if(data.hit&&data.hit===selfIdRef.current){onHud({healthHit:data.damage});}};
+      r.onPeerLeave(id=>{delete peers.current[id];onPeers(Object.values(peers.current))});
+    });
+    return()=>{cancelled=true;sendState.current=null;room.current?.leave();room.current=null};
   },[name,onHud,onPeers,roomId]);
 
   useFrame((_,dt)=>{
@@ -138,7 +142,7 @@ function Arena({ map, name, roomId, onHud, onPeers }: { map: MapId; name: string
     const sprinting=!!(keys.current.ShiftLeft||keys.current.ShiftRight); if(dir.lengthSq())dir.normalize().multiplyScalar((sprinting?10:6)*dt); camera.position.add(dir);
     velocityY.current-=18*dt;camera.position.y+=velocityY.current*dt;if(camera.position.y<1.7){camera.position.y=1.7;velocityY.current=0;grounded.current=true}
     camera.position.x=THREE.MathUtils.clamp(camera.position.x,-15.8,15.8);camera.position.z=THREE.MathUtils.clamp(camera.position.z,-52,5);
-    const state={id:selfId,name,position:[camera.position.x,camera.position.y-1.6,camera.position.z] as Vec3,rotation:yaw.current,score:score.current,weapon:weapon.current,moving:dir.lengthSq()>0,sprinting};
+    const state={id:selfIdRef.current,name,position:[camera.position.x,camera.position.y-1.6,camera.position.z] as Vec3,rotation:yaw.current,score:score.current,weapon:weapon.current,moving:dir.lengthSq()>0,sprinting};
     sendState.current?.(state); onHud({sprinting,moving:state.moving,position:state.position});
   });
 
