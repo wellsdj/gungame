@@ -125,8 +125,8 @@ function Arena({ map, name, roomId, onHud, onPeers }: { map: MapId; name: string
 
   useEffect(()=>{
     const r=joinRoom({appId:"gungame-neon-arena-v1"},roomId); room.current=r;
-    const [send,get]=r.makeAction<any>("state"); sendState.current=send;
-    get((data,id)=>{if(data.position){peers.current[id]={...data,id};onPeers(Object.values(peers.current));} if(data.hit&&data.hit===selfId){onHud({healthHit:data.damage});}});
+    const stateAction=r.makeAction<any>("state"); sendState.current=(data)=>{void stateAction.send(data)};
+    stateAction.onMessage=(data,{peerId:id})=>{if(data.position){peers.current[id]={...data,id};onPeers(Object.values(peers.current));} if(data.hit&&data.hit===selfId){onHud({healthHit:data.damage});}};
     r.onPeerLeave(id=>{delete peers.current[id];onPeers(Object.values(peers.current))});
     return()=>r.leave();
   },[name,onHud,onPeers,roomId]);
